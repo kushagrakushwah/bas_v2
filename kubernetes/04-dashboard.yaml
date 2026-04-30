@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secureforge-dashboard
+  namespace: secureforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secureforge-dashboard
+  template:
+    metadata:
+      labels:
+        app: secureforge-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        # Using the image we will build below
+        image: secureforge-dashboard:latest
+        imagePullPolicy: Never
+        env:
+        # Internal DNS routes directly to the engine service
+        - name: API_URL
+          value: "http://bas-engine:8000/api/v1"
+        ports:
+        - containerPort: 8501
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: secureforge-dashboard
+  namespace: secureforge
+spec:
+  type: NodePort
+  selector:
+    app: secureforge-dashboard
+  ports:
+  - port: 8501
+    targetPort: 8501
+    nodePort: 30850

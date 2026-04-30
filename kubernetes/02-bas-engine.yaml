@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bas-engine
+  namespace: secureforge
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bas-engine
+  template:
+    metadata:
+      labels:
+        app: bas-engine
+    spec:
+      containers:
+      - name: bas-engine
+        # Using the image we built locally with docker-compose
+        image: secureforge-bas-engine:latest
+        imagePullPolicy: Never 
+        env:
+        - name: LOGSTASH_URL
+          value: "http://logstash:5044"
+        ports:
+        - containerPort: 8000
+        # Resources are REQUIRED for the HPA to know when to scale
+        resources:
+          requests:
+            cpu: "100m"
+            memory: "256Mi"
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: bas-engine
+  namespace: secureforge
+spec:
+  type: NodePort
+  selector:
+    app: bas-engine
+  ports:
+  - port: 8000
+    targetPort: 8000
+    nodePort: 30800

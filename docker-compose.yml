@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  bas-engine:
+    build: 
+      context: ./bas_engine
+    ports:
+      - "8000:8000"
+    environment:
+      - ENVIRONMENT=dev
+    volumes:
+      - ./bas_engine:/app
