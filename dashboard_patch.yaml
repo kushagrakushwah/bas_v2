@@ -1,0 +1,7 @@
+﻿spec:
+  template:
+    spec:
+      containers:
+      - name: dashboard
+        image: secureforge-dashboard:v2
+        imagePullPolicy: IfNotPresent

@@ -1,17 +1,5 @@
-﻿apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: secureforge-dashboard
-  namespace: secureforge
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: secureforge-dashboard
+﻿spec:
   template:
-    metadata:
-      labels:
-        app: secureforge-dashboard
     spec:
       containers:
       - name: dashboard

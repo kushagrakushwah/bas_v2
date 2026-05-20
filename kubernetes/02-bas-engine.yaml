@@ -17,7 +17,7 @@ spec:
       - name: bas-engine
         # Using the image we built locally with docker-compose
         image: secureforge-bas-engine:latest
-        imagePullPolicy: Never 
+        imagePullPolicy: IfNotPresent 
         env:
         - name: LOGSTASH_URL
           value: "http://logstash:5044"
