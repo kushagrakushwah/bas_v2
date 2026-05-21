@@ -4,7 +4,13 @@ import uvicorn
 import logging
 from datetime import datetime
 
-from api.routes import simulations, modules, results, health
+from api.routes import (
+    simulations,
+    modules,
+    results,
+    health,
+    events
+)
 from core.orchestrator import AttackOrchestrator
 from core.event_bus import EventBus
 from utils.logger import setup_logging
@@ -57,7 +63,11 @@ app.include_router(health.router, prefix="/api/v1", tags=["Health"])
 app.include_router(modules.router, prefix="/api/v1/modules", tags=["Attack Modules"])
 app.include_router(simulations.router, prefix="/api/v1/simulations", tags=["Simulations"])
 app.include_router(results.router, prefix="/api/v1/results", tags=["Results"])
-
+app.include_router(
+    events.router,
+    prefix="/api/v1/events",
+    tags=["Events"]
+)
 @app.get("/")
 async def root():
     return {"status": "operational", "service": "SecureForge BAS Engine"}

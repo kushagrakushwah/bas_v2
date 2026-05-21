@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual Environments
+venv/
+.env
+
+# Streamlit
+.streamlit/
+
+# Logs
+*.log
+
+# Reports
+*.pdf
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Kubernetes Secrets
+secrets.yaml
+
+# Cache
+.pytest_cache/
+
+# Build
+dist/
+build/
+
+# Temporary
+tmp/

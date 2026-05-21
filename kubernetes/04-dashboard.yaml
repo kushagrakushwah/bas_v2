@@ -1,4 +1,4 @@
-﻿apiVersion: apps/v1
+apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: secureforge-dashboard
@@ -13,12 +13,16 @@ spec:
       labels:
         app: secureforge-dashboard
     spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
       containers:
       - name: dashboard
-        image: secureforge-dashboard:v2
+        image: secureforge-dashboard:v3
         imagePullPolicy: IfNotPresent
         env:
         - name: API_URL
           value: "http://bas-engine:8000/api/v1"
+        - name: ELASTICSEARCH_URL
+          value: "https://192.168.10.62:9200"
         ports:
         - containerPort: 8501
