@@ -44,6 +44,9 @@ from pages.reports import (
     render_reports_page
 )
 
+from pages.alerts import (
+    render_alerts_page
+)
 # ---------------------------------------------------
 # PAGE CONFIG
 # ---------------------------------------------------
@@ -113,3 +116,7 @@ elif page == "Infrastructure":
 elif page == "Reports":
 
     render_reports_page()
+    
+elif page == "Alert Center":
+
+    render_alerts_page()
