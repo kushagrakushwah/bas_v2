@@ -58,7 +58,7 @@ def render_sidebar():
             "Executive Analytics",
             "Campaign Engine",
             "Infrastructure",
-            "Reports"
+            "Reports",
             "Alert Center"
         ]
     )

@@ -6,6 +6,7 @@ import time
 from typing import List
 from datetime import datetime, timedelta, timezone
 from .base import BaseAttackModule
+
 # ─────────────────────────────────────────────
 # CONFIGURATION
 # ─────────────────────────────────────────────
@@ -204,13 +205,74 @@ async def send_payload(session: aiohttp.ClientSession, label: str, payload: str,
                 outcome = f"UNEXPECTED ({status})"
 
             result = {
-                "label":         label,
-                "category":      category,
-                "payload":       payload[:60] + ("..." if len(payload) > 60 else ""),
-                "url":           url[:80] + ("..." if len(url) > 80 else ""),
-                "http_status":   status,
-                "outcome":       outcome,
-                "expected_rule": expected_rule,
+
+                # ------------------------------------------------
+                # REQUIRED BY AttackModuleResult / Pydantic
+                # ------------------------------------------------
+
+                "id":
+                    label.lower(),
+
+                "title":
+                    f"{category} Detection",
+
+                "description":
+                    (
+                        f"WAF processed payload '{label}' "
+                        f"with HTTP status {status}. "
+                        f"Expected CRS rule: {expected_rule}"
+                    ),
+
+                "severity":
+                    (
+                        "medium"
+                        if status == 403
+                        else "high"
+                    ),
+
+                "mitre_id":
+                    "T1190",
+
+                # ------------------------------------------------
+                # EXISTING DATA
+                # ------------------------------------------------
+
+                "label":
+                    label,
+
+                "category":
+                    category,
+
+                "payload":
+                    payload[:60] + (
+                        "..."
+                        if len(payload) > 60
+                        else ""
+                    ),
+
+                "url":
+                    url[:80] + (
+                        "..."
+                        if len(url) > 80
+                        else ""
+                    ),
+
+                "http_status":
+                    status,
+
+                "outcome":
+                    outcome,
+
+                "expected_rule":
+                    expected_rule,
+
+                "blocked":
+                    status == 403,
+
+                "timestamp":
+                    datetime.now(
+                        timezone.utc
+                    ).isoformat()
             }
             results.append(result)
 
@@ -220,14 +282,99 @@ async def send_payload(session: aiohttp.ClientSession, label: str, payload: str,
     except asyncio.TimeoutError:
         print(f"  [T] {category:<40} TIMEOUT")
         results.append({
-            "label": label, "category": category, "payload": payload[:60],
-            "url": url[:80], "http_status": "TIMEOUT", "outcome": "TIMEOUT", "expected_rule": expected_rule
+
+            "id":
+                f"{label.lower()}_timeout",
+
+            "title":
+                f"{category} Timeout",
+
+            "description":
+                f"Payload '{label}' timed out during execution.",
+
+            "severity":
+                "low",
+
+            "mitre_id":
+                "T1190",
+
+            "label":
+                label,
+
+            "category":
+                category,
+
+            "payload":
+                payload[:60],
+
+            "url":
+                url[:80],
+
+            "http_status":
+                "TIMEOUT",
+
+            "outcome":
+                "TIMEOUT",
+
+            "expected_rule":
+                expected_rule,
+
+            "blocked":
+                False,
+
+            "timestamp":
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
         })
+
     except Exception as e:
         print(f"  [E] {category:<40} ERROR: {e}")
         results.append({
-            "label": label, "category": category, "payload": payload[:60],
-            "url": url[:80], "http_status": "ERROR", "outcome": f"ERROR: {e}", "expected_rule": expected_rule
+
+            "id":
+                f"{label.lower()}_error",
+
+            "title":
+                f"{category} Error",
+
+            "description":
+                f"Execution error occurred: {e}",
+
+            "severity":
+                "medium",
+
+            "mitre_id":
+                "T1190",
+
+            "label":
+                label,
+
+            "category":
+                category,
+
+            "payload":
+                payload[:60],
+
+            "url":
+                url[:80],
+
+            "http_status":
+                "ERROR",
+
+            "outcome":
+                f"ERROR: {e}",
+
+            "expected_rule":
+                expected_rule,
+
+            "blocked":
+                False,
+
+            "timestamp":
+                datetime.now(
+                    timezone.utc
+                ).isoformat()
         })
 
 
@@ -357,6 +504,7 @@ def print_summary():
     for r in results:
         print(f"  {r['category']:<42} {str(r['http_status']):<8} {r['outcome']}")
 
+
 class WAFEvasionModule(BaseAttackModule):
     MODULE_NAME = "waf_evasion"
 
@@ -367,6 +515,8 @@ class WAFEvasionModule(BaseAttackModule):
         time.sleep(PIPELINE_WAIT)
         validate_waf_detection()
         return results
+
+
 # ─────────────────────────────────────────────
 # MAIN
 # ─────────────────────────────────────────────

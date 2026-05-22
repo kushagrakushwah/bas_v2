@@ -3,13 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
 from datetime import datetime
-
+from alerts.alert_manager import (
+    process_alert
+)
 from api.routes import (
     simulations,
     modules,
     results,
     health,
-    events
+    events,
+    ws
 )
 from core.orchestrator import AttackOrchestrator
 from core.event_bus import EventBus
@@ -45,11 +48,30 @@ async def startup():
     # --- THE MISSING WIRE ---
     # Listen to all internal events and forward them to Logstash
     async def forward_to_elk(event):
-        try:
-            await app.state.elk_client.push_event("secureforge-bas", event)
-        except Exception as e:
-            logger.debug(f"ELK Forwarding error: {e}")
 
+        try:
+
+            # -------------------------------------------
+            # ELK PIPELINE
+            # -------------------------------------------
+
+            await app.state.elk_client.push_event(
+                "secureforge-bas",
+                event
+            )
+
+            # -------------------------------------------
+            # ALERT PIPELINE
+            # -------------------------------------------
+
+            process_alert(event)
+            await ws.broadcast_event(event)
+
+        except Exception as e:
+
+            logger.debug(
+                f"ELK Forwarding error: {e}"
+            )
     app.state.event_bus.subscribe("*", forward_to_elk)
     logger.info("  All services initialized and ELK telemetry wired.")
 
@@ -68,6 +90,7 @@ app.include_router(
     prefix="/api/v1/events",
     tags=["Events"]
 )
+app.include_router(ws.router)
 @app.get("/")
 async def root():
     return {"status": "operational", "service": "SecureForge BAS Engine"}

@@ -1,10 +1,15 @@
 import streamlit as st
 
+st.set_page_config(
+    page_title="SecureForge",
+    page_icon="🛡️",
+    layout="wide"
+)
 from auth.auth_manager import (
     is_authenticated
 )
 
-from pages.login import (
+from views.login import (
     render_login_page
 )
 
@@ -12,50 +17,42 @@ from components.sidebar import (
     render_sidebar
 )
 
-from pages.launch import (
+from views.launch import (
     render_launch_page
 )
 
-from pages.realtime import (
+from views.realtime import (
     render_realtime_page
 )
 
-from pages.mitre import (
+from views.mitre import (
     render_mitre_page
 )
 
-from pages.soc_validation import (
+from views.soc_validation import (
     render_soc_page
 )
 
-from pages.analytics import (
+from views.analytics import (
     render_analytics_page
 )
 
-from pages.campaigns import (
+from views.campaigns import (
     render_campaigns_page
 )
 
-from pages.infrastructure import (
+from views.infrastructure import (
     render_infrastructure_page
 )
 
-from pages.reports import (
+from views.reports import (
     render_reports_page
 )
 
-from pages.alerts import (
+from views.alerts import (
     render_alerts_page
 )
-# ---------------------------------------------------
-# PAGE CONFIG
-# ---------------------------------------------------
 
-st.set_page_config(
-    page_title="SecureForge",
-    page_icon="🛡️",
-    layout="wide"
-)
 
 # ---------------------------------------------------
 # SESSION DEFAULTS
