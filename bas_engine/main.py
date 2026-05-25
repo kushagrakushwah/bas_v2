@@ -12,7 +12,8 @@ from api.routes import (
     results,
     health,
     events,
-    ws
+    ws,
+    replay
 )
 from core.orchestrator import AttackOrchestrator
 from core.event_bus import EventBus
@@ -89,6 +90,11 @@ app.include_router(
     events.router,
     prefix="/api/v1/events",
     tags=["Events"]
+)
+app.include_router(
+    replay.router,
+    prefix="/api/v1/replay",
+    tags=["Replay"]
 )
 app.include_router(ws.router)
 @app.get("/")

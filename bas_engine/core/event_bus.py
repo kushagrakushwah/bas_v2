@@ -8,7 +8,9 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import Callable, Dict, List, Any
-
+from repositories.events_repo import (
+    EventsRepository
+)
 logger = logging.getLogger("secureforge.eventbus")
 
 
@@ -17,6 +19,7 @@ class EventBus:
         self._listeners: Dict[str, List[Callable]] = defaultdict(list)
         self._history:   List[dict] = []
         self._max_history = 1000
+        self.repo = EventsRepository()
 
     def subscribe(self, event_type: str, handler: Callable):
         self._listeners[event_type].append(handler)
@@ -30,6 +33,11 @@ class EventBus:
             "payload":   payload or {},
             "timestamp": datetime.utcnow().isoformat(),
         }
+        await self.repo.save_event(
+            event_type,
+            payload or {},
+            event["timestamp"]
+        )
 
         # Store history (ring buffer)
         self._history.append(event)
