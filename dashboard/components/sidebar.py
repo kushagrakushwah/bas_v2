@@ -59,7 +59,8 @@ def render_sidebar():
             "Campaign Engine",
             "Infrastructure",
             "Reports",
-            "Alert Center"
+            "Alert Center",
+            "Attack Surface Intelligence"
         ]
     )
 

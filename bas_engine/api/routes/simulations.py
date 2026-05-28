@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, HTTPException
-from models.simulation import SimulationRequest, SimulationResult, SimulationSummary
+from bas_engine.models.simulation import SimulationRequest, SimulationResult, SimulationSummary
 from typing import List
 
 router = APIRouter()

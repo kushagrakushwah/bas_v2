@@ -1,10 +1,10 @@
 from sqlalchemy import select
 
-from database.connection import (
+from bas_engine.database.connection import (
     AsyncSessionLocal
 )
 
-from database.models import (
+from bas_engine.database.models import (
     EventDB
 )
 

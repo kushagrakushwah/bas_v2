@@ -1,16 +1,16 @@
-from detection.coverage_engine import (
+from bas_engine.detection.coverage_engine import (
     CoverageEngine
 )
 
-from detection.soc_scoring import (
+from bas_engine.detection.soc_scoring import (
     SOCScoringEngine
 )
 
-from detection.blindspot_analyzer import (
+from bas_engine.detection.blindspot_analyzer import (
     BlindSpotAnalyzer
 )
 
-from detection.sigma_generator import (
+from bas_engine.detection.sigma_generator import (
     SigmaGenerator
 )
 

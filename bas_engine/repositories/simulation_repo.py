@@ -1,15 +1,15 @@
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
-from database.connection import AsyncSessionLocal
+from bas_engine.database.connection import AsyncSessionLocal
 
-from database.models import (
+from bas_engine.database.models import (
     SimulationDB,
     ModuleResultDB,
     FindingDB
 )
 
-from models.simulation import (
+from bas_engine.models.simulation import (
     SimulationResult,
     AttackModuleResult,
     Finding

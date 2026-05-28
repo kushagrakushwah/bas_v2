@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from detection.mitre_mapper import (
+from bas_engine.detection.mitre_mapper import (
     get_tactic
 )
 

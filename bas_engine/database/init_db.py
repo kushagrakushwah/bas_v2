@@ -1,8 +1,8 @@
 import asyncio
 
-from database.connection import engine, Base
+from bas_engine.database.connection import engine, Base
 
-from database import models
+from bas_engine.database import models
 
 
 async def init():

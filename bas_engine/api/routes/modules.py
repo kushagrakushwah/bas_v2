@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from attack_modules.registry import MODULE_REGISTRY
+from bas_engine.attack_modules.registry import MODULE_REGISTRY
 
 router = APIRouter()
 

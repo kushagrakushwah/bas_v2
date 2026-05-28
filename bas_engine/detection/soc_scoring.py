@@ -1,4 +1,4 @@
-from detection.coverage_engine import (
+from bas_engine.detection.coverage_engine import (
     CoverageEngine
 )
 

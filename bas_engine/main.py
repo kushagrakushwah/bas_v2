@@ -3,10 +3,18 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import logging
 from datetime import datetime
-from alerts.alert_manager import (
+from bas_engine.alerts.alert_manager import (
     process_alert
 )
-from api.routes import (
+from bas_engine.api.routes.recon import (
+    router as recon_router
+)
+from fastapi import WebSocket
+
+from bas_engine.core.events.ws_manager import (
+    manager
+)
+from bas_engine.api.routes import (
     simulations,
     modules,
     results,
@@ -15,10 +23,10 @@ from api.routes import (
     ws,
     replay
 )
-from core.orchestrator import AttackOrchestrator
-from core.event_bus import EventBus
-from utils.logger import setup_logging
-from utils.elk_client import ELKClient
+from bas_engine.core.orchestrator import AttackOrchestrator
+from bas_engine.core.event_bus import EventBus
+from bas_engine.utils.logger import setup_logging
+from bas_engine.utils.elk_client import ELKClient
 
 # Setup
 setup_logging()
@@ -100,6 +108,42 @@ app.include_router(ws.router)
 @app.get("/")
 async def root():
     return {"status": "operational", "service": "SecureForge BAS Engine"}
+app.include_router(
 
+    recon_router,
+
+    prefix="/api/v1/recon",
+
+    tags=["Recon"]
+)
+@app.websocket("/ws/{simulation_id}")
+async def websocket_endpoint(
+
+    websocket: WebSocket,
+
+    simulation_id: str,
+):
+
+    await manager.connect(
+
+        simulation_id,
+
+        websocket
+    )
+
+    try:
+
+        while True:
+
+            await websocket.receive_text()
+
+    except Exception:
+
+        manager.disconnect(
+
+            simulation_id,
+
+            websocket
+        )
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, workers=1)

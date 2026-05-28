@@ -4,15 +4,15 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional, List
 from enum import Enum
-from repositories.simulation_repo import (
+from bas_engine.repositories.simulation_repo import (
     SimulationRepository
 )
-from core.event_bus import EventBus
-from models.simulation import (
+from bas_engine.core.event_bus import EventBus
+from bas_engine.models.simulation import (
     SimulationRequest, SimulationResult, SimulationStatus,
     AttackModuleResult, SimulationSummary
 )
-from detection.validation_engine import (
+from bas_engine.detection.validation_engine import (
     DetectionValidationEngine
 )
 
@@ -281,7 +281,7 @@ class AttackOrchestrator:
                     }
                 )
     async def _run_module(self, sim_id: str, target: str, module_name: str, options: dict) -> AttackModuleResult:
-        from attack_modules.registry import MODULE_REGISTRY
+        from bas_engine.attack_modules.registry import MODULE_REGISTRY
         module_cls = MODULE_REGISTRY.get(module_name)
         
         if not module_cls:

@@ -8,7 +8,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import Callable, Dict, List, Any
-from repositories.events_repo import (
+from bas_engine.repositories.events_repo import (
     EventsRepository
 )
 logger = logging.getLogger("secureforge.eventbus")

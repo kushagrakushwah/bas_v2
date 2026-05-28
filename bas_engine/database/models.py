@@ -10,7 +10,7 @@ from sqlalchemy import (
 
 from sqlalchemy.orm import relationship
 
-from database.connection import Base
+from bas_engine.database.connection import Base
 
 from datetime import datetime
 import uuid
