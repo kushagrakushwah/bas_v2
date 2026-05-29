@@ -372,11 +372,53 @@ class NmapScanModule(BaseAttackModule):
         findings: List[Finding] = []
 
         # Read options from self.options (dict passed in from simulation config)
-        options      = getattr(self, "options", {}) or {}
+        all_options = getattr(self, "options", {}) or {}
+
+        options = all_options.get(
+            "nmap_scan",
+            all_options
+        )
         profile      = options.get("profile", "standard").lower()
         custom_ports = options.get("ports", None)        # e.g. "22,80,443,8000-9000"
-        timeout      = float(options.get("timeout", 2.0))
-        concurrency  = int(options.get("concurrency", 100))
+        timing = options.get("timing", "T4")
+
+        TIMING_CONFIG = {
+            "T2": {
+                "timeout": 4.0,
+                "concurrency": 50
+            },
+            "T3": {
+                "timeout": 3.0,
+                "concurrency": 100
+            },
+            "T4": {
+                "timeout": 2.0,
+                "concurrency": 200
+            },
+            "T5": {
+                "timeout": 1.0,
+                "concurrency": 400
+            }
+        }
+
+        cfg = TIMING_CONFIG.get(
+            timing,
+            TIMING_CONFIG["T4"]
+        )
+
+        timeout = float(
+            options.get(
+                "timeout",
+                cfg["timeout"]
+            )
+        )
+
+        concurrency = int(
+            options.get(
+                "concurrency",
+                cfg["concurrency"]
+            )
+        )
         subnet_scan  = options.get("subnet_scan", False)  # force subnet mode
 
         target, is_cidr = self._parse_target(self.target)
