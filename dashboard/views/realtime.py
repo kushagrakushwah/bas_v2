@@ -8,7 +8,8 @@ from streamlit_autorefresh import (
 from services.api_client import api
 
 from services.event_stream import (
-    fetch_live_events
+    fetch_live_events,
+    start_event_stream
 )
 
 from services.progress_tracker import (
@@ -59,6 +60,7 @@ def map_severity(event_type):
 def render_realtime_page():
 
     st.title("📡 Live Attack Operations")
+    start_event_stream()
 
     st.caption(
         "Realtime attack execution and campaign telemetry"

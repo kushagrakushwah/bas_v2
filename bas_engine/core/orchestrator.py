@@ -4,11 +4,16 @@ import logging
 from datetime import datetime
 from typing import Dict, Optional, List
 from enum import Enum
-
-from core.event_bus import EventBus
-from models.simulation import (
+from bas_engine.repositories.simulation_repo import (
+    SimulationRepository
+)
+from bas_engine.core.event_bus import EventBus
+from bas_engine.models.simulation import (
     SimulationRequest, SimulationResult, SimulationStatus,
     AttackModuleResult, SimulationSummary
+)
+from bas_engine.detection.validation_engine import (
+    DetectionValidationEngine
 )
 
 logger = logging.getLogger("secureforge.orchestrator")
@@ -23,9 +28,13 @@ class SimulationState(str, Enum):
 class AttackOrchestrator:
     def __init__(self, event_bus: EventBus):
         self.event_bus  = event_bus
+        self.repo = SimulationRepository()
         self._store: Dict[str, SimulationResult] = {}
         self._tasks: Dict[str, asyncio.Task]     = {}
         self._semaphore = asyncio.Semaphore(5)
+        self.validation_engine = (
+            DetectionValidationEngine()
+        )
         logger.info("AttackOrchestrator initialized")
 
     async def launch(self, request: SimulationRequest) -> SimulationResult:
@@ -37,6 +46,7 @@ class AttackOrchestrator:
             created_at=now, updated_at=now, module_results=[], metadata=request.metadata or {}
         )
         self._store[sim_id] = result
+        await self.repo.create_simulation(result)
         task = asyncio.create_task(self._run_simulation(sim_id, request))
         self._tasks[sim_id] = task
         task.add_done_callback(lambda t: self._tasks.pop(sim_id, None))
@@ -59,30 +69,219 @@ class AttackOrchestrator:
             failed=sum(1 for r in results if r.status == SimulationState.FAILED),
         )
 
-    async def _run_simulation(self, sim_id: str, request: SimulationRequest):
-        async with self._semaphore:
-            result = self._store[sim_id]
-            result.status = SimulationState.RUNNING
-            result.started_at = datetime.utcnow()
-            await self.event_bus.publish("simulation.started", {"id": sim_id, "target": request.target})
-            try:
-                module_tasks = [self._run_module(sim_id, request.target, m, request.options) for m in request.modules]
-                if request.parallel:
-                    module_results = await asyncio.gather(*module_tasks, return_exceptions=True)
-                else:
-                    module_results = [await t for t in module_tasks]
-                
-                result.module_results = [r for r in module_results if isinstance(r, AttackModuleResult)]
-                result.status = SimulationState.COMPLETED
-                result.finished_at = datetime.utcnow()
-                await self.event_bus.publish("simulation.completed", {"id": sim_id})
-            except Exception as exc:
-                result.status = SimulationState.FAILED
-                result.error = str(exc)
-                await self.event_bus.publish("simulation.failed", {"id": sim_id, "error": str(exc)})
+    async def _run_simulation(
+        self,
+        sim_id: str,
+        request: SimulationRequest
+    ):
 
+        async with self._semaphore:
+
+            result = self._store[sim_id]
+
+            result.status = SimulationState.RUNNING
+
+            result.started_at = datetime.utcnow()
+
+            await self.repo.update_simulation(result)
+
+            await self.event_bus.publish(
+
+                "simulation.started",
+
+                {
+                    "id": sim_id,
+                    "target": request.target
+                }
+            )
+
+            try:
+
+                module_tasks = [
+
+                    self._run_module(
+                        sim_id,
+                        request.target,
+                        m,
+                        request.options
+                    )
+
+                    for m in request.modules
+                ]
+
+                # ----------------------------------------
+                # PARALLEL / SEQUENTIAL EXECUTION
+                # ----------------------------------------
+
+                if request.parallel:
+
+                    module_results = await asyncio.gather(
+                        *module_tasks,
+                        return_exceptions=True
+                    )
+
+                else:
+
+                    module_results = []
+
+                    for t in module_tasks:
+
+                        module_results.append(
+                            await t
+                        )
+
+                # ----------------------------------------
+                # STORE MODULE RESULTS
+                # ----------------------------------------
+
+                result.module_results = []
+
+                for r in module_results:
+
+                    if isinstance(r, Exception):
+
+                        logger.error(
+                            f"Module execution error: {r}"
+                        )
+
+                        continue
+
+                    result.module_results.append(r)
+                    print("\n=== MODULE RESULT ===")
+                    print(r)
+                    print("Findings:", len(r.findings))
+
+                # ----------------------------------------
+                # COLLECT FINDINGS
+                # ----------------------------------------
+
+                all_findings = []
+
+                for mod in result.module_results:
+
+                    print(f"\n=== MODULE {mod.module} ===")
+                    print(f"Findings count: {len(mod.findings)}")
+
+                    for finding in mod.findings:
+
+                        print("Finding:", finding)
+
+                        # ----------------------------------------
+                        # Pydantic v2 compatibility
+                        # ----------------------------------------
+
+                        if hasattr(finding, "model_dump"):
+
+                            f = finding.model_dump()
+
+                        else:
+
+                            f = finding.dict()
+
+                        print("Serialized:", f)
+
+                        all_findings.append({
+
+                            "mitre_id":
+                                f.get("mitre_id"),
+
+                            "severity":
+                                str(
+                                    f.get("severity")
+                                ),
+
+                            "title":
+                                f.get("title")
+                        })
+
+                # ----------------------------------------
+                # RUN DETECTION VALIDATION
+                # ----------------------------------------
+                print("\n=== FINDINGS SENT TO VALIDATION ===")
+                print(all_findings)
+                validation = (
+
+                    self.validation_engine
+                    .validate(all_findings)
+                )
+                print("\n=== VALIDATION RESULT ===")
+                print(validation)
+
+                # ----------------------------------------
+                # STORE VALIDATION
+                # ----------------------------------------
+
+                result.metadata[
+                    "detection_validation"
+                ] = validation
+
+                # ----------------------------------------
+                # COMPLETE
+                # ----------------------------------------
+
+                result.status = (
+                    SimulationState.COMPLETED
+                )
+
+                result.finished_at = (
+                    datetime.utcnow()
+                )
+
+                # ----------------------------------------
+                # SAVE TO DATABASE
+                # ----------------------------------------
+
+                await self.repo.save_module_results(
+
+                    sim_id,
+
+                    result.module_results
+                )
+
+                await self.repo.update_simulation(
+                    result
+                )
+
+                # ----------------------------------------
+                # EVENT
+                # ----------------------------------------
+
+                await self.event_bus.publish(
+
+                    "simulation.completed",
+
+                    {
+                        "id": sim_id
+                    }
+                )
+
+            except Exception as exc:
+
+                result.status = (
+                    SimulationState.FAILED
+                )
+
+                result.error = str(exc)
+
+                result.finished_at = (
+                    datetime.utcnow()
+                )
+
+                await self.repo.update_simulation(
+                    result
+                )
+
+                await self.event_bus.publish(
+
+                    "simulation.failed",
+
+                    {
+                        "id": sim_id,
+                        "error": str(exc)
+                    }
+                )
     async def _run_module(self, sim_id: str, target: str, module_name: str, options: dict) -> AttackModuleResult:
-        from attack_modules.registry import MODULE_REGISTRY
+        from bas_engine.attack_modules.registry import MODULE_REGISTRY
         module_cls = MODULE_REGISTRY.get(module_name)
         
         if not module_cls:

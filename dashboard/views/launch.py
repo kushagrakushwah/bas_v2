@@ -132,23 +132,122 @@ Configure and launch Breach & Attack Simulations.
             modules = st.multiselect(
                 "Select Attack Modules",
                 AVAILABLE_MODULES,
-                default=["waf_evasion"]
+                default=[]
             )
+
+            # ===================================================
+            # NMAP CONFIGURATION
+            # ===================================================
+
+            nmap_options = {}
+
+            if "nmap_scan" in modules:
+
+                st.markdown("---")
+                st.subheader("🌐 Nmap Recon Configuration")
+
+                coln1, coln2 = st.columns(2)
+
+                with coln1:
+
+                    scan_profile = st.selectbox(
+                        "Scan Profile",
+                        [
+                            "Quick Discovery",
+                            "Standard Discovery",
+                            "Adversary Mode",
+                            "Full Adversary"
+                        ]
+                    )
+
+                    port_range = st.text_input(
+                        "Port Range",
+                        value="1-1000"
+                    )
+
+                with coln2:
+
+                    timing = st.selectbox(
+                        "Timing",
+                        [
+                            "T2",
+                            "T3",
+                            "T4",
+                            "T5"
+                        ],
+                        index=2
+                    )
+
+                    concurrency = st.slider(
+                        "Concurrency",
+                        min_value=10,
+                        max_value=500,
+                        value=100,
+                        step=10
+                    )
+
+                assume_alive = st.checkbox(
+                    "Assume Hosts Alive (-Pn)",
+                    value=False
+                )
+
+                subnet_scan = st.checkbox(
+                    "Subnet Discovery Mode",
+                    value=False
+                )
+
+                service_detection = st.checkbox(
+                    "Service Detection (-sV)",
+                    value=True
+                )
+
+                os_detection = st.checkbox(
+                    "OS Detection (-O)",
+                    value=False
+                )
+
+                full_port_scan = st.checkbox(
+                    "Scan All Ports (1-65535)",
+                    value=False
+                )
+
+                if full_port_scan:
+                    port_range = "1-65535"
+
+                profile_map = {
+                    "Quick Discovery": "quick",
+                    "Standard Discovery": "standard",
+                    "Adversary Mode": "standard",
+                    "Full Adversary": "full"
+                }
+
+                nmap_options = {
+                    "profile": profile_map[scan_profile],
+                    "ports": port_range,
+                    "timing": timing,
+                    "concurrency": concurrency,
+                    "subnet_scan": subnet_scan,
+                    "assume_alive": assume_alive,
+                    "service_detection": service_detection,
+                    "os_detection": os_detection
+                }
+
 
             parallel = st.checkbox(
                 "Run Modules In Parallel",
                 value=True
             )
 
-        live_mode = st.checkbox(
-            "⚠️ LIVE MODE (Exploit)",
-            value=False
-        )
+            live_mode = st.checkbox(
+                "⚠️ LIVE MODE (Exploit)",
+                value=False
+            )
 
-        submitted = st.form_submit_button(
-            "🚀 Launch Simulation",
-            use_container_width=True
-        )
+            submitted = st.form_submit_button(
+                "🚀 Launch Simulation"
+            )
+                
+
 
     # ---------------------------------------------------
     # LAUNCH
@@ -170,13 +269,20 @@ Configure and launch Breach & Attack Simulations.
                 "Launching simulation..."
             ):
 
+                simulation_options = {}
+
+                if "nmap_scan" in modules:
+
+                    simulation_options["nmap_scan"] = nmap_options
+
                 result = api.launch_simulation(
                     name=sim_name,
                     target=target,
                     modules=modules,
                     parallel=parallel,
+                    options=simulation_options,
                     metadata={
-                        "live_mode": live_mode
+                        "live_mode": False
                     }
                 )
 

@@ -1,30 +1,75 @@
-import requests
+import websocket
+import threading
+import json
+
 import streamlit as st
 
-API_BASE = "http://localhost:8000/api/v1"
-
 # ---------------------------------------------------
-# FETCH LIVE EVENTS
+# SESSION STATE
 # ---------------------------------------------------
 
-@st.cache_data(ttl=2)
-def fetch_live_events():
+if "ws_events" not in st.session_state:
+
+    st.session_state.ws_events = []
+
+# ---------------------------------------------------
+# MESSAGE HANDLER
+# ---------------------------------------------------
+
+def on_message(ws, message):
 
     try:
 
-        response = requests.get(
-            f"{API_BASE}/events",
-            timeout=5
+        data = json.loads(message)
+
+        st.session_state.ws_events.insert(
+            0,
+            data
         )
 
-        response.raise_for_status()
-
-        return response.json()
-
-    except Exception as e:
-
-        st.error(
-            f"Event Stream Error: {e}"
+        st.session_state.ws_events = (
+            st.session_state.ws_events[:50]
         )
 
-        return []
+    except Exception:
+        pass
+
+# ---------------------------------------------------
+# START STREAM
+# ---------------------------------------------------
+
+def start_event_stream():
+
+    if st.session_state.get(
+        "ws_started"
+    ):
+        return
+
+    st.session_state.ws_started = True
+
+    ws = websocket.WebSocketApp(
+
+        "ws://localhost:8000/ws/events",
+
+        on_message=on_message
+    )
+
+    thread = threading.Thread(
+
+        target=ws.run_forever,
+
+        daemon=True
+    )
+
+    thread.start()
+
+# ---------------------------------------------------
+# FETCH EVENTS
+# ---------------------------------------------------
+
+def fetch_live_events():
+
+    return st.session_state.get(
+        "ws_events",
+        []
+    )

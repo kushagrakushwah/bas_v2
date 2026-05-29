@@ -14,8 +14,8 @@ import aiohttp
 import re
 from typing import List
 
-from attack_modules.base import BaseAttackModule
-from models.simulation import Finding, Severity
+from bas_engine.attack_modules.base import BaseAttackModule
+from bas_engine.models.simulation import Finding, Severity
 
 
 class CredentialDumpingModule(BaseAttackModule):

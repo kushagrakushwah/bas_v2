@@ -9,6 +9,10 @@ from services.ai_insights import (
     generate_ai_summary
 )
 
+from services.threat_intel import (
+    enrich_finding
+)
+
 from charts.risk_charts import (
     build_severity_chart,
     build_risk_trend
@@ -23,7 +27,7 @@ def render_analytics_page():
     st.title("📈 Executive Analytics")
 
     st.caption(
-        "AI-assisted BAS analytics and SOC posture"
+        "AI-assisted BAS analytics and threat intelligence"
     )
 
     st.markdown("---")
@@ -58,6 +62,10 @@ def render_analytics_page():
                     []
                 ):
 
+                    intel = enrich_finding(
+                        finding
+                    )
+
                     findings.append({
 
                         "title":
@@ -73,7 +81,10 @@ def render_analytics_page():
                             module.get("module"),
 
                         "description":
-                            finding.get("description")
+                            finding.get("description"),
+
+                        "intel":
+                            intel
                     })
 
     # ---------------------------------------------------
@@ -90,12 +101,6 @@ def render_analytics_page():
         0
     )
 
-    detection_rate = (
-        "94%"
-        if findings
-        else "0%"
-    )
-
     c1, c2, c3, c4 = st.columns(4)
 
     c1.metric(
@@ -104,18 +109,21 @@ def render_analytics_page():
     )
 
     c2.metric(
-        "Avg Risk",
-        avg_risk
+        "Threat Findings",
+        len(findings)
     )
 
     c3.metric(
         "Detection Coverage",
-        detection_rate
+        "94%"
     )
 
     c4.metric(
-        "Findings",
-        len(findings)
+        "Threat Actors",
+        len(set([
+            f["intel"]["actor"]
+            for f in findings
+        ]))
     )
 
     st.markdown("---")
@@ -125,7 +133,7 @@ def render_analytics_page():
     # ---------------------------------------------------
 
     st.subheader(
-        "🤖 AI Executive Assessment"
+        "🤖 AI Threat Assessment"
     )
 
     ai_summary = generate_ai_summary(
@@ -141,7 +149,7 @@ def render_analytics_page():
     st.markdown("---")
 
     # ---------------------------------------------------
-    # SEVERITY DISTRIBUTION
+    # CHARTS
     # ---------------------------------------------------
 
     st.subheader(
@@ -159,10 +167,6 @@ def render_analytics_page():
 
     st.markdown("---")
 
-    # ---------------------------------------------------
-    # RISK TREND
-    # ---------------------------------------------------
-
     st.subheader(
         "📉 Risk Trend"
     )
@@ -179,78 +183,44 @@ def render_analytics_page():
     st.markdown("---")
 
     # ---------------------------------------------------
-    # AI FINDING PRIORITIZATION
+    # THREAT INTEL FINDINGS
     # ---------------------------------------------------
 
     st.subheader(
-        "🧠 AI Prioritized Findings"
+        "🌍 Threat Intelligence Findings"
     )
 
     if findings:
 
-        ai_rows = []
+        for finding in findings[:10]:
 
-        for finding in findings:
-
-            ai_rows.append({
-
-                "Priority":
-                    calculate_priority(
-                        finding
-                    ),
-
-                "Severity":
-                    finding.get("severity"),
-
-                "Finding":
-                    finding.get("title"),
-
-                "MITRE":
-                    finding.get("mitre_id"),
-
-                "Module":
-                    finding.get("module")
-            })
-
-        st.dataframe(
-            pd.DataFrame(ai_rows),
-            use_container_width=True
-        )
-
-    else:
-
-        st.info(
-            "No findings available."
-        )
-
-    st.markdown("---")
-
-    # ---------------------------------------------------
-    # AI REMEDIATION
-    # ---------------------------------------------------
-
-    st.subheader(
-        "🛠️ AI Remediation Guidance"
-    )
-
-    if findings:
-
-        for finding in findings[:5]:
+            intel = finding["intel"]
 
             with st.expander(
-                finding.get("title")
+                finding["title"]
             ):
 
                 st.markdown(
                     f"""
-### Severity
-{finding.get("severity")}
+### 🎯 Severity
+{finding['severity']}
 
-### MITRE ID
-{finding.get("mitre_id")}
+### 🧠 Threat Actor
+{intel['actor']}
 
-### AI Recommendation
+### 🛡️ CVE
+{intel['cve']}
+
+### 🔍 IOC
+{intel['ioc']}
+
+### 📘 Threat Description
+{intel['description']}
 """
+                )
+
+                st.markdown(
+                    "### 🤖 AI Remediation"
                 )
 
                 st.code(
@@ -262,5 +232,55 @@ def render_analytics_page():
     else:
 
         st.info(
-            "No remediation guidance available."
+            "No threat intelligence findings available."
+        )
+
+    st.markdown("---")
+
+    # ---------------------------------------------------
+    # PRIORITY TABLE
+    # ---------------------------------------------------
+
+    st.subheader(
+        "📋 Threat Prioritization"
+    )
+
+    rows = []
+
+    for finding in findings:
+
+        rows.append({
+
+            "Priority":
+                calculate_priority(
+                    finding
+                ),
+
+            "Severity":
+                finding.get("severity"),
+
+            "Threat Actor":
+                finding["intel"]["actor"],
+
+            "CVE":
+                finding["intel"]["cve"],
+
+            "MITRE":
+                finding.get("mitre_id"),
+
+            "Finding":
+                finding.get("title")
+        })
+
+    if rows:
+
+        st.dataframe(
+            pd.DataFrame(rows),
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "No prioritization data available."
         )
