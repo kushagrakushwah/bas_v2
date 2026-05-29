@@ -145,10 +145,3 @@ elif page == "Alert Center":
 
     render_alerts_page()
 
-# =====================================================
-# ATTACK SURFACE INTELLIGENCE
-# =====================================================
-
-elif page == "Attack Surface Intelligence":
-
-    render_attack_surface()
